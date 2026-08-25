@@ -1,0 +1,164 @@
+// Agricultural Store Business Software — Database Schema
+// Provider defaults to SQLite for zero-config local/dev use.
+// Swap `provider` to "postgresql" and set DATABASE_URL for production.
+//
+// Note: SQLite has no native enum type, so fields that would normally be
+// enums (Role, PaymentMode, SaleStatus, PurchaseStatus) are plain `String`
+// columns here; the allowed values are enforced at the API layer with Zod
+// (see src/routes/*). The allowed values are documented next to each field.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         String   @default("CASHIER") // ADMIN | MANAGER | CASHIER
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  sales     Sale[]     @relation("SaleCreatedBy")
+  purchases Purchase[] @relation("PurchaseCreatedBy")
+  payments  Payment[]  @relation("PaymentReceivedBy")
+}
+
+model Category {
+  id        String    @id @default(cuid())
+  name      String    @unique
+  createdAt DateTime  @default(now())
+  products  Product[]
+}
+
+model Product {
+  id            String    @id @default(cuid())
+  name          String
+  sku           String    @unique
+  categoryId    String?
+  category      Category? @relation(fields: [categoryId], references: [id])
+  unit          String    // e.g. kg, bag, litre, piece
+  costPrice     Float     @default(0)
+  sellingPrice  Float     @default(0)
+  stockQty      Float     @default(0)
+  reorderLevel  Float     @default(10)
+  batchNo       String?
+  expiryDate    DateTime?
+  active        Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  purchaseItems PurchaseItem[]
+  saleItems     SaleItem[]
+  adjustments   StockAdjustment[]
+}
+
+model Supplier {
+  id        String     @id @default(cuid())
+  name      String
+  phone     String?
+  address   String?
+  createdAt DateTime   @default(now())
+  purchases Purchase[]
+}
+
+model Customer {
+  id            String   @id @default(cuid())
+  name          String
+  phone         String?
+  address       String?
+  creditBalance Float    @default(0) // positive = customer owes store
+  creditLimit   Float    @default(0) // 0 = no limit enforced
+  createdAt     DateTime @default(now())
+
+  sales    Sale[]
+  payments Payment[]
+}
+
+model Purchase {
+  id          String   @id @default(cuid())
+  invoiceNo   String   @unique
+  supplierId  String
+  supplier    Supplier @relation(fields: [supplierId], references: [id])
+  date        DateTime @default(now())
+  totalAmount Float    @default(0)
+  paidAmount  Float    @default(0)
+  status      String   @default("UNPAID") // PAID | PARTIALLY_PAID | UNPAID
+  notes       String?
+  createdById String?
+  createdBy   User?    @relation("PurchaseCreatedBy", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+
+  items PurchaseItem[]
+}
+
+model PurchaseItem {
+  id         String   @id @default(cuid())
+  purchaseId String
+  purchase   Purchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  productId  String
+  product    Product  @relation(fields: [productId], references: [id])
+  qty        Float
+  costPrice  Float
+  subtotal   Float
+}
+
+model Sale {
+  id          String   @id @default(cuid())
+  invoiceNo   String   @unique
+  customerId  String?
+  customer    Customer? @relation(fields: [customerId], references: [id])
+  date        DateTime @default(now())
+  subtotal    Float    @default(0)
+  discount    Float    @default(0)
+  totalAmount Float    @default(0)
+  paidAmount  Float    @default(0)
+  paymentMode String   @default("CASH") // CASH | CREDIT | BANK | MOBILE_MONEY | CHEQUE
+  status      String   @default("COMPLETED") // COMPLETED | PARTIALLY_PAID | UNPAID | CANCELLED
+  notes       String?
+  createdById String?
+  createdBy   User?    @relation("SaleCreatedBy", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+
+  items SaleItem[]
+}
+
+model SaleItem {
+  id        String  @id @default(cuid())
+  saleId    String
+  sale      Sale    @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
+  qty       Float
+  price     Float
+  subtotal  Float
+}
+
+model Payment {
+  id           String   @id @default(cuid())
+  customerId   String
+  customer     Customer @relation(fields: [customerId], references: [id])
+  amount       Float
+  mode         String   @default("CASH") // CASH | CREDIT | BANK | MOBILE_MONEY | CHEQUE
+  note         String?
+  date         DateTime @default(now())
+  receivedById String?
+  receivedBy   User?    @relation("PaymentReceivedBy", fields: [receivedById], references: [id])
+  createdAt    DateTime @default(now())
+}
+
+model StockAdjustment {
+  id        String   @id @default(cuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id])
+  qtyChange Float    // positive = added, negative = removed
+  reason    String
+  date      DateTime @default(now())
+}
